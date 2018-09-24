@@ -4,9 +4,10 @@
 
 var target = Argument("target", "Default");
 var configuration = Argument("configuration", "Release");
-var npmPath = IsRunningOnWindows()
+var npmPath = (IsRunningOnWindows()
                 ? Context.Tools.Resolve("npm.cmd")
-                : Context.Tools.Resolve("npm");
+                : Context.Tools.Resolve("npm"))
+                ?? throw new Exception("Failed to resolve npm, make sure Node is installed.");
 
 //////////////////////////////////////////////////////////////////////
 // PARAMETERS
@@ -14,6 +15,7 @@ var npmPath = IsRunningOnWindows()
 
 var project = "CoreWiki";
 var solution = $"./{project}.sln";
+var tests = $"./{project}.Test/{project}.Test.csproj";
 var publishPath = MakeAbsolute(Directory("./output"));
 
 //////////////////////////////////////////////////////////////////////
@@ -77,12 +79,26 @@ Task("Build")
         });
 });
 
+Task("Test")
+    .IsDependentOn("Build")
+    .Does( () => {
+    DotNetCoreTest(tests,
+        new DotNetCoreTestSettings {
+            NoBuild = true,
+            NoRestore = true,
+            Configuration = configuration,
+						ResultsDirectory = "./testresults",
+						ArgumentCustomization = args => args.Append("--logger:xunit;LogFilePath=test_result.xml")
+        });
+});
+
 Task("Publish")
-    .IsDependentOn("Restore")
+    .IsDependentOn("Test")
     .IsDependentOn("Clean-Publish")
     .Does( () => {
     DotNetCorePublish(solution,
         new DotNetCorePublishSettings {
+
             NoRestore = true,
             Configuration = configuration,
             OutputDirectory = publishPath
@@ -90,12 +106,12 @@ Task("Publish")
 });
 
 Task("Default")
-    .IsDependentOn("Build");
+    .IsDependentOn("Test");
 
 Task("AppVeyor")
     .IsDependentOn("Publish");
 
 Task("Travis")
-    .IsDependentOn("Build");
+    .IsDependentOn("Test");
 
 RunTarget(target);

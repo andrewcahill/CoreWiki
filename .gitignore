@@ -6,6 +6,7 @@
 *.user
 *.userosscache
 *.sln.docstates
+.filenesting.json
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
@@ -214,6 +215,9 @@ UpgradeLog*.htm
 *.mdf
 *.ldf
 
+# Ignore SQL-lite files
+*.db
+
 # Business Intelligence projects
 *.rdl.data
 *.bim.layout
@@ -264,9 +268,14 @@ __pycache__/
 CoreWiki/wwwroot/lib/
 !CoreWiki/wwwroot/lib/simplemde
 
-# VSCode 
-.vscode/
-
 # Cake files
 [Tt]ools/
 [Oo]utput/
+*.pubxml
+.dotnet/
+
+# Minified and generated files
+*.min.js
+
+# Ignore test results
+test_result.xml

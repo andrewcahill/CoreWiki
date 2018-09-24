@@ -1,0 +1,60 @@
+@page "{handler?}"
+@using System.Collections.Generic
+@using Microsoft.AspNetCore.Mvc.Rendering
+@using Humanizer;
+@model SearchModel
+@{
+	ViewData["Title"] = Model.RequestedPage == "search" ? Localizer["Search"] : Localizer["LatestChanges"];
+	var searchResult = Model.SearchResult;
+	var urlParams = new Dictionary<string, string>
+{
+{"Query", searchResult?.Query ?? ""}
+
+};
+}
+<h1 class="h1">@ViewData["Title"]</h1>
+
+<p>
+	<a href="/Create" class="btn btn-outline-success">@Localizer["NewArticle"]</a>
+</p>
+
+@if (Model.RequestedPage == "search")
+{
+<form action="/search" method="get" class="my-2">
+	<div class="form-group">
+		<div class="input-group">
+			<input class="form-control" type="text" name="Query" value="@searchResult?.Query" placeholder=@Localizer["SearchPlaceholderText"] />
+			<div class="input-group-append">
+				<button class="btn badge-primary" type="submit">@Localizer["Search"]</button>
+			</div>
+		</div>
+	</div>
+</form>
+}
+
+@if (searchResult != null)
+{
+	<div class="mb-2">
+		@("result".ToQuantity(searchResult.TotalResults))
+		found for <strong>@searchResult.Query</strong>
+	</div>
+
+	if (searchResult.TotalPages > 1)
+	{
+	<pager asp-page="Search"
+		navigation-button-visibility="Always"
+		navigation-buttons="All"
+		url-params="urlParams"
+		current-page="searchResult.CurrentPage"
+		total-pages="searchResult.TotalPages">
+	</pager>
+	}
+
+	<div class="container-fluid row justify-content-around">
+		@foreach (var article in searchResult.Results)
+		{
+			@await Html.PartialAsync("_ArticleRow", article)
+		}
+	</div>
+
+}

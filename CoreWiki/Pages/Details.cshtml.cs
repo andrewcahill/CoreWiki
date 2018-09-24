@@ -1,39 +1,96 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using CoreWiki.ViewModels;
+using CoreWiki.Helpers;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Microsoft.EntityFrameworkCore;
-using CoreWiki.Models;
+using System;
+using System.Security.Claims;
+using System.Threading.Tasks;
+using MediatR;
+using AutoMapper;
+using CoreWiki.Application.Articles.Reading.Commands;
+using CoreWiki.Application.Articles.Reading.Queries;
+using CoreWiki.Application.Common;
 
 namespace CoreWiki.Pages
 {
 	public class DetailsModel : PageModel
 	{
-		private readonly CoreWiki.Models.ApplicationDbContext _context;
+		private readonly IMediator _mediator;
+		private readonly IMapper _mapper;
 
-		public DetailsModel(CoreWiki.Models.ApplicationDbContext context)
+		public DetailsModel(IMediator mediator, IMapper mapper)
 		{
-			_context = context;
+			_mediator = mediator;
+			_mapper = mapper;
 		}
 
-		public Article Article { get; set; }
+		public ArticleDetails Article { get; set; }
+
+		[ViewDataAttribute]
+		public string Slug { get; set; }
 
 		public async Task<IActionResult> OnGetAsync(string slug)
 		{
 
-            // TODO: If topicName not specified, default to Home Page
+			slug = slug ?? UrlHelpers.HomePageSlug;
+			var article = await _mediator.Send(new GetArticleQuery(slug));
 
-            slug = slug ?? "home-page";
-
-			Article = await _context.Articles.SingleOrDefaultAsync(m => m.Slug == slug.ToLower());
-
-			if (Article == null)
+			if (article == null)
 			{
-				return NotFound();
+
+				var historical = await _mediator.Send(new GetSlugHistoryQuery(slug));
+
+				if (historical != null)
+				{
+					return new RedirectResult($"~/wiki/{historical.Article.Slug}");
+				}
+				return new ArticleNotFoundResult(slug);
 			}
+
+			Article = _mapper.Map<ArticleDetails>(article); 
+
+			ManageViewCount(slug);
+
 			return Page();
+		}
+
+		private void ManageViewCount(string slug)
+		{
+			var incrementViewCount = (Request.Cookies[slug] == null);
+			if (!incrementViewCount)
+			{
+				return;
+			}
+
+			Article.ViewCount++;
+			Response.Cookies.Append(slug, "foo", new Microsoft.AspNetCore.Http.CookieOptions
+			{
+				Expires = DateTime.UtcNow.AddMinutes(5)
+			});
+			_mediator.Send(new IncrementViewCountCommand(slug));
+		}
+
+		public async Task<IActionResult> OnPostAsync(Comment model)
+		{
+
+			TryValidateModel(model);
+
+			if (!ModelState.IsValid)
+				return Page();
+
+			var article = await _mediator.Send(new GetArticleByIdQuery(model.ArticleId));
+
+			if (article == null)
+			{
+				return new ArticleNotFoundResult();
+			}
+
+			var commentCmd = _mapper.Map<CreateNewCommentCommand>(model);
+				commentCmd = _mapper.Map(User, commentCmd);
+
+			await _mediator.Send(commentCmd);
+
+			return Redirect($"/wiki/{article.Slug}");
 		}
 	}
 }

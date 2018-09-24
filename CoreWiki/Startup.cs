@@ -1,22 +1,19 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using CoreWiki.Models;
+using CoreWiki.Configuration.Settings;
+using CoreWiki.Configuration.Startup;
+using CoreWiki.Data.EntityFramework.Security;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.FileProviders;
-using NodaTime;
+using Microsoft.Extensions.Options;
+using System.Threading.Tasks;
 
 namespace CoreWiki
 {
 	public class Startup
 	{
+
 		public Startup(IConfiguration configuration)
 		{
 			Configuration = configuration;
@@ -28,46 +25,34 @@ namespace CoreWiki
 		public void ConfigureServices(IServiceCollection services)
 		{
 
-			services.AddEntityFrameworkSqlite()
-					.AddDbContext<ApplicationDbContext>(options =>
-							options.UseSqlite("Data Source=./wiki.db")
-					);
+			services.ConfigureAutomapper();
 
-			// Add NodaTime clock for time-based testing
-			services.AddSingleton<IClock>(SystemClock.Instance);
-
-            services.AddRouting(options => options.LowercaseUrls = true);
-
-            services.AddMvc()
-				.AddRazorPagesOptions(options =>
-				{
-
-                    options.Conventions.AddPageRoute("/Details", "{Slug?}");
-					options.Conventions.AddPageRoute("/Details", @"Index");
-				});
+			services.ConfigureRSSFeed();
+			services.Configure<AppSettings>(Configuration);
+			services.ConfigureSecurityAndAuthentication();
+			services.ConfigureDatabase(Configuration);
+			services.ConfigureScopedServices(Configuration);
+			services.ConfigureRouting();
+			services.ConfigureLocalisation();
+			services.ConfigureApplicationServices();
+			services.AddMediator();
 		}
 
 		// This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-		public void Configure(IApplicationBuilder app, IHostingEnvironment env)
+		public void Configure(IApplicationBuilder app, IHostingEnvironment env, IOptionsSnapshot<AppSettings> settings, UserManager<CoreWikiUser> userManager, RoleManager<IdentityRole> roleManager)
 		{
-			if (env.IsDevelopment())
-			{
-				app.UseBrowserLink();
-				app.UseDeveloperExceptionPage();
-			}
-			else
-			{
-				app.UseExceptionHandler("/Error");
-			}
+			app.ConfigureTelemetry();
+			app.ConfigureExceptions(env);
+			app.ConfigureSecurityHeaders(env);
+			app.ConfigureRouting();
+			app.ConfigureDatabase();
+			var theTask = app.ConfigureAuthentication(userManager, roleManager);
+			theTask.GetAwaiter().GetResult();
+			app.ConfigureRSSFeed(settings);
+			app.ConfigureLocalisation();
 
-			app.UseStaticFiles();
-
+			app.UseStatusCodePagesWithReExecute("/HttpErrors/{0}");
 			app.UseMvc();
-
-			var scope = app.ApplicationServices.CreateScope();
-			var context = scope.ServiceProvider.GetService<ApplicationDbContext>();
-			ApplicationDbContext.SeedData(context);
-
 		}
 
 	}

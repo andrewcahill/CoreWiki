@@ -1,64 +1,101 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using CoreWiki.Areas.Identity;
+using CoreWiki.ViewModels;
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Microsoft.AspNetCore.Mvc.Rendering;
-using NodaTime;
-using CoreWiki.Models;
-using CoreWiki.Helpers;
 using Microsoft.Extensions.Logging;
+using System;
+using System.Linq;
+using System.Security.Claims;
+using System.Threading.Tasks;
+using AutoMapper;
+using CoreWiki.Application.Articles.Managing.Commands;
+using CoreWiki.Application.Articles.Managing.Queries;
+using CoreWiki.Application.Common;
+using CoreWiki.Helpers;
 
 namespace CoreWiki.Pages
 {
-    public class CreateModel : PageModel
-    {
-        private readonly CoreWiki.Models.ApplicationDbContext _context;
-        private readonly IClock _clock;
 
-    public ILogger Logger { get; private set; }
+	[Authorize(Policy = PolicyConstants.CanWriteArticles)]
+	public class CreateModel : PageModel
+	{
+		private readonly IMediator _mediator;
+		private readonly IMapper _mapper;
+		private readonly ILogger _logger;
 
-    public CreateModel(CoreWiki.Models.ApplicationDbContext context, IClock clock, ILoggerFactory loggerFactory)
-        {
-            _context = context;
-            _clock = clock;
-            this.Logger = loggerFactory.CreateLogger("CreatePage");
-        }
+		public CreateModel(IMediator mediator, IMapper mapper, ILoggerFactory loggerFactory)
+		{
+			_mediator = mediator;
+			_mapper = mapper;
+			_logger = loggerFactory.CreateLogger("CreatePage");
+		}
 
-        public IActionResult OnGet() => Page();
+		public async Task<IActionResult> OnGetAsync(string slug = "")
+		{
+			if (string.IsNullOrEmpty(slug))
+			{
+				return Page();
+			}
 
-        [BindProperty]
-        public Article Article { get; set; }
+			var request = new GetArticleQuery(slug);
+			var result = await _mediator.Send(request);
+			if (result == null)
+			{
+				Article = new ArticleCreate
+				{
+					Topic = UrlHelpers.SlugToTopic(slug)
+				};
+			}
+			else
+			{
+				return Redirect($"/{slug}/Edit");
+			}
 
-        public async Task<IActionResult> OnPostAsync()
-        {
+			return Page();
+		}
 
-            var slug = UrlHelpers.URLFriendly(Article.Topic.ToLower());
-            Article.Slug = slug;
+		[BindProperty]
+		public ArticleCreate Article { get; set; }   
 
-            if (!ModelState.IsValid)
-            {
-                return Page();
-            }
+		public async Task<IActionResult> OnPostAsync()
+		{
+			var slug = UrlHelpers.URLFriendly(Article.Topic);
+			if (string.IsNullOrWhiteSpace(slug))
+			{
+				ModelState.AddModelError("Article.Topic", "The Topic must contain at least one alphanumeric character.");
+				return Page();
+			}
 
-            //check if the slug already exists in the database.  
-            Logger.LogWarning($"Creating page with slug: {slug}");
-            var isAvailable = !_context.Articles.Any(x => x.Slug == slug);
+			if (!ModelState.IsValid) { return Page(); }
 
-            if (isAvailable == false)
-            {
-                ModelState.AddModelError("Article.Topic", "This Title already exists.");
-                return Page();
-            }
+			_logger.LogWarning($"Creating page with slug: {slug}");
 
-            Article.Published = _clock.GetCurrentInstant();
-            // Article.Slug = slug;
+			var isTopicAvailable = new GetIsTopicAvailableQuery {Slug = slug, ArticleId = 0};
+			if (await _mediator.Send(isTopicAvailable))
+			{
+				ModelState.AddModelError("Article.Topic", "This Title already exists.");
+				return Page();
+			}
 
-            _context.Articles.Add(Article);
-            await _context.SaveChangesAsync();
+			var cmd = _mapper.Map<CreateNewArticleCommand>(Article);
+			cmd = _mapper.Map(User, cmd);
 
-            return Redirect($"/{Article.Slug}");
-        }
-    }
+			var cmdResult = await _mediator.Send(cmd);
+
+			// TODO: Inspect result to ensure it ran properly
+
+			var query = new GetArticlesToCreateFromArticleQuery(slug);
+			var listOfSlugs = await _mediator.Send(query);
+
+			if (listOfSlugs.Any())
+			{
+				return RedirectToPage("CreateArticleFromLink", new { id = slug });
+			}
+
+			return Redirect($"/wiki/{slug}");
+
+		}
+	}
 }
